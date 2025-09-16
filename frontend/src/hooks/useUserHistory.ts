@@ -36,7 +36,9 @@ export function useUserHistory() {
 
     const fetchPastLogs = async () => {
       try {
-        const fromBlock = block.data > 5000n ? block.data - 5000n : 0n;
+        // Search from genesis to capture all historical data
+        const fromBlock = 0n; // Start from the very beginning
+        console.log('Searching blocks from:', fromBlock.toString(), 'to:', block.data.toString());
         const toBlock = block.data;
 
         const eventDefs: Array<{ type: HistoryItem["type"]; event: AbiEvent }> = [
@@ -53,23 +55,40 @@ export function useUserHistory() {
             fromBlock,
             toBlock,
           });
+          
+          console.log(`Found ${logs.length} logs for event type: ${e.type}`);
+          if (e.type === "message") {
+            console.log('Message logs:', logs);
+          }
 
           const userLogs = logs.filter((log) => {
             if (!log.args || Array.isArray(log.args)) return false;
             const args = log.args as Record<string, unknown>;
 
             if (e.type === "message") {
-              return (
+              // Include global messages (to address(0)) for everyone
+              // Also include private messages where user is sender or recipient
+              const isGlobalMessage = 
+                typeof args.to === "string" && 
+                args.to.toLowerCase() === "0x0000000000000000000000000000000000000000";
+              
+              const isUserInvolvedMessage = 
                 (typeof args.from === "string" &&
                   args.from.toLowerCase() === address.toLowerCase()) ||
                 (typeof args.to === "string" &&
-                  args.to.toLowerCase() === address.toLowerCase())
-              );
+                  args.to.toLowerCase() === address.toLowerCase());
+                  
+              const shouldInclude = isGlobalMessage || isUserInvolvedMessage;
+              
+              // Simple logging for debugging
+              if (e.type === "message" && shouldInclude) {
+                console.log('Including message:', { from: args.from, to: args.to, isGlobal: isGlobalMessage });
+              }
+              
+              return shouldInclude;
             } else if (e.type === "registration") {
-              return (
-                typeof args.user === "string" &&
-                args.user.toLowerCase() === address.toLowerCase()
-              );
+              // Include all user registrations, not just current user's
+              return typeof args.user === "string";
             }
             return false;
           });
@@ -121,17 +140,22 @@ export function useUserHistory() {
             const args = log.args as Record<string, unknown>;
 
             if (type === "message") {
-              return (
+              // Include global messages (to address(0)) for everyone
+              // Also include private messages where user is sender or recipient
+              const isGlobalMessage = 
+                typeof args.to === "string" && 
+                args.to.toLowerCase() === "0x0000000000000000000000000000000000000000";
+              
+              const isUserInvolvedMessage = 
                 (typeof args.from === "string" &&
                   args.from.toLowerCase() === address.toLowerCase()) ||
                 (typeof args.to === "string" &&
-                  args.to.toLowerCase() === address.toLowerCase())
-              );
+                  args.to.toLowerCase() === address.toLowerCase());
+                  
+              return isGlobalMessage || isUserInvolvedMessage;
             } else if (type === "registration") {
-              return (
-                typeof args.user === "string" &&
-                args.user.toLowerCase() === address.toLowerCase()
-              );
+              // Include all user registrations
+              return typeof args.user === "string";
             }
             return false;
           });

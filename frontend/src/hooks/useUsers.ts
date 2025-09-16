@@ -24,7 +24,9 @@ export function useUsers() {
         
         // Get recent blocks to fetch user registrations
         const blockNumber = await publicClient.getBlockNumber();
-        const fromBlock = blockNumber > 5000n ? blockNumber - 5000n : 0n;
+        // Search from genesis to capture all historical data
+        const fromBlock = 0n; // Start from the very beginning
+        console.log('Searching user registrations from block:', fromBlock.toString(), 'to:', blockNumber.toString());
         
         // Fetch all user registration events
         const logs = await publicClient.getLogs({
@@ -33,6 +35,9 @@ export function useUsers() {
           fromBlock,
           toBlock: blockNumber,
         });
+        
+        console.log('Found user registration logs:', logs.length);
+        console.log('User registration logs:', logs);
 
         // Convert logs to user objects
         const userMap = new Map<string, User>();
