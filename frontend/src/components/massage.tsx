@@ -149,7 +149,7 @@ export const Message: React.FC<MessageProps> = ({
         }`}>
           <Clock className="w-3 h-3 text-gray-400" />
           <span className={`text-xs ${
-            isMine ? "text-primary-600" : "text-gray-700"
+            isMine ? "text-gray-600" : "text-gray-700"
           }`}>
             {message?.timestamp ? formatTimestamp(message.timestamp) : ""}
           </span>

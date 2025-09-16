@@ -265,7 +265,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             {isSending || isPending ? (
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-300 border-t-gray-600"></div>
             ) : (
-              <Send className="w-4 h-4 md:w-5 md:h-5" />
+              <Send className="w-4 h-4 text-blue-800 md:w-5 md:h-5" />
             )}
           </button>
         </form>
