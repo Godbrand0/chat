@@ -2,22 +2,31 @@
 
 import { Message } from './massage';
 import React, { useState, useEffect, useRef } from 'react';
-import { Send } from 'lucide-react';
+import { Send, TrendingUp, UserPlus, RefreshCw } from 'lucide-react';
 import { User } from '../types/user';
 import { useChatContract } from '../hooks/useChatContract';
 import { uploadJSONToIPFS } from '../utils/ipfs';
-import { useUserHistory } from '../hooks/useUserHistory';
 
 interface ChatInterfaceProps {
   currentUser: User;
   selectedUser?: User | null; // null = global chat
 }
 
-interface MessageType {
-  ipfsHash: string;
-  from: string;
+// Display item interface for unified chat display
+interface DisplayItem {
+  type: "message" | "feed" | "registration";
+  id: string;
   timestamp: number;
+  // Message fields
+  ipfsHash?: string;
+  from?: string;
   to?: string;
+  // Price feed fields
+  price?: string;
+  
+  // Registration fields
+  username?: string;
+  profilePicHash?: string;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -25,107 +34,127 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   selectedUser,
 }) => {
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<MessageType[]>([]);
+  const [displayItems, setDisplayItems] = useState<DisplayItem[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [messageError, setMessageError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const { sendGlobalMessage, sendPrivateMessage, isPending } = useChatContract();
-  const history = useUserHistory();
+  // Use the integrated contract hook with history
+  const { 
+    sendGlobalMessage, 
+    sendPrivateMessage, 
+    fetchPriceUpdate,
+    
+    isPending, 
+    history 
+  } = useChatContract();
 
   const isGlobalChat = !selectedUser;
 
-  // Scroll to bottom whenever messages change
+  // Scroll to bottom whenever display items change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [displayItems]);
 
-  // Load messages from history
+  // Load messages and other events from centralized history
   useEffect(() => {
-    const loadMessages = async () => {
+    const loadDisplayItems = async () => {
       setIsLoadingMessages(true);
       setMessageError(null);
       
       try {
-        const relevantMessages: MessageType[] = [];
+        const relevantItems: DisplayItem[] = [];
 
-        console.log('Loading messages for:', isGlobalChat ? 'Global Chat' : selectedUser?.username);
+        console.log('Loading items for:', isGlobalChat ? 'Global Chat' : selectedUser?.username);
         console.log('Total history items:', history.length);
 
-      for (const msg of history) {
-        // More detailed filtering and logging
-        if (msg.type !== 'message') {
-          console.log('Skipping non-message:', msg.type);
-          continue;
-        }
-        if (!msg.ipfsHash) {
-          console.log('Skipping message without IPFS hash:', msg);
-          continue;
-        }
-        if (!msg.from) {
-          console.log('Skipping message without sender:', msg);
-          continue;
-        }
+        for (const item of history) {
+          // Handle different item types
+          if (item.type === 'message') {
+            if (!item.ipfsHash || !item.from) continue;
 
-        if (isGlobalChat) {
-          // For global chat, include messages where 'to' is address(0) (0x0000000000000000000000000000000000000000)
-          // The contract sends global messages with address(0) as recipient
-          const isGlobalMessage = 
-            msg.to === '0x0000000000000000000000000000000000000000' ||
-            msg.to === null ||
-            msg.to === undefined ||
-            msg.to === '' ||
-            msg.to?.toLowerCase() === '0x0000000000000000000000000000000000000000';
-            
-          if (!isGlobalMessage) {
-            console.log('Skipping non-global message for global chat. To address:', msg.to);
-            continue;
+            if (isGlobalChat) {
+              // For global chat, include global messages
+              const isGlobalMessage = 
+                item.to === '0x0000000000000000000000000000000000000000' ||
+                item.to === null ||
+                item.to === undefined ||
+                item.to === '' ||
+                item.to?.toLowerCase() === '0x0000000000000000000000000000000000000000';
+                
+              if (isGlobalMessage) {
+                relevantItems.push({
+                  type: 'message',
+                  id: `msg-${item.txHash}`,
+                  timestamp: item.timestamp,
+                  ipfsHash: item.ipfsHash,
+                  from: item.from,
+                  to: item.to,
+                });
+              }
+            } else if (selectedUser) {
+              // For private chat, check if message involves both participants
+              const participantA = currentUser.address.toLowerCase();
+              const participantB = selectedUser.address.toLowerCase();
+              const fromLower = item.from.toLowerCase();
+              const toLower = (item.to || '').toLowerCase();
+              
+              const isRelevantMessage = 
+                (fromLower === participantA && toLower === participantB) ||
+                (fromLower === participantB && toLower === participantA);
+                
+              if (isRelevantMessage) {
+                relevantItems.push({
+                  type: 'message',
+                  id: `msg-${item.txHash}`,
+                  timestamp: item.timestamp,
+                  ipfsHash: item.ipfsHash,
+                  from: item.from,
+                  to: item.to,
+                });
+              }
+            }
           }
-          console.log('Including global message:', { from: msg.from, to: msg.to, hash: msg.ipfsHash });
-        } else if (selectedUser) {
-          // For private chat, check if message involves both participants
-          const participantA = currentUser.address.toLowerCase();
-          const participantB = selectedUser.address.toLowerCase();
-          const fromLower = msg.from.toLowerCase();
-          const toLower = (msg.to || '').toLowerCase();
           
-          // For private chat, check if message involves both participants
-          const isRelevantMessage = 
-            (fromLower === participantA && toLower === participantB) ||
-            (fromLower === participantB && toLower === participantA);
+          // Only show price feeds and registrations in global chat
+          if (isGlobalChat) {
+            if (item.type === 'feed' && item.price) {
+              relevantItems.push({
+                type: 'feed',
+                id: `feed-${item.txHash}`,
+                timestamp: item.timestamp,
+                price: item.price,
+              });
+            }
             
-          if (!isRelevantMessage) {
-            continue;
+            if (item.type === 'registration' && item.username) {
+              relevantItems.push({
+                type: 'registration',
+                id: `reg-${item.txHash}`,
+                timestamp: item.timestamp,
+                from: item.from,
+                username: item.username,
+                profilePicHash: item.profilePicHash,
+              });
+            }
           }
-          console.log('Found private message:', { from: msg.from, to: msg.to });
-        } else {
-          // No selected user and not global chat - skip
-          continue;
         }
 
-        relevantMessages.push({
-          ipfsHash: msg.ipfsHash,
-          from: msg.from,
-          timestamp: msg.timestamp || Date.now(),
-          to: msg.to,
-        });
-      }
-
-        console.log('Relevant messages found:', relevantMessages.length);
+        console.log('Relevant items found:', relevantItems.length);
         
         // Sort by timestamp ascending
-        relevantMessages.sort((a, b) => a.timestamp - b.timestamp);
-        setMessages(relevantMessages);
+        relevantItems.sort((a, b) => a.timestamp - b.timestamp);
+        setDisplayItems(relevantItems);
       } catch (error) {
-        console.error('Error loading messages:', error);
+        console.error('Error loading items:', error);
         setMessageError('Failed to load messages. Please try again.');
       } finally {
         setIsLoadingMessages(false);
       }
     };
 
-    loadMessages();
+    loadDisplayItems();
   }, [history, selectedUser, currentUser, isGlobalChat]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -150,8 +179,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         await sendGlobalMessage(ipfsHash);
       }
 
-      // Add to local state
-      setMessages((prev) => [...prev, { ipfsHash, from: currentUser.address, timestamp: messageData.timestamp, to: messageData.to }]);
+      // Add to local state immediately for better UX
+      setDisplayItems((prev) => [...prev, {
+        type: 'message',
+        id: `temp-${Date.now()}`,
+        timestamp: messageData.timestamp,
+        ipfsHash,
+        from: currentUser.address,
+        to: messageData.to
+      }]);
       setMessage('');
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -160,23 +196,92 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
+  const handleManualPriceUpdate = () => {
+    fetchPriceUpdate();
+    
+  };
+
+  // Component to render different item types
+  const renderDisplayItem = (item: DisplayItem) => {
+    switch (item.type) {
+      case 'message':
+        return (
+          <Message
+            key={item.id}
+            ipfsHash={item.ipfsHash!}
+            from={item.from!}
+            currentUserAddress={currentUser.address}
+          />
+        );
+        
+      case 'feed':
+        return (
+          <div key={item.id} className="flex items-center justify-center py-3">
+            <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-full text-sm">
+              <TrendingUp className="w-4 h-4 text-blue-600" />
+              <span className="text-blue-800 font-medium">
+                Price Update: {item.price} ETH
+              </span>
+              <span className="text-blue-600 text-xs">
+                • {new Date(item.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          </div>
+        );
+        
+      case 'registration':
+        return (
+          <div key={item.id} className="flex items-center justify-center py-2">
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-full text-sm">
+              <UserPlus className="w-4 h-4 text-green-600" />
+              <span className="text-green-800">
+                <span className="font-medium">{item.username}</span> joined the chat
+              </span>
+              <span className="text-green-600 text-xs">
+                • {new Date(item.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          </div>
+        );
+        
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-gray-50">
       {/* Chat Header - Hidden on mobile since we have the mobile header */}
       <div className="hidden md:block bg-white border-b border-gray-200 shadow-sm">
         <div className="p-6">
-          <h1 className="text-2xl font-bold text-gray-900">
-            {isGlobalChat ? '🌍 Global Chat' : `💬 ${selectedUser?.username}`}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {isGlobalChat
-              ? 'Welcome to the decentralized chat! Connect with everyone.'
-              : `Private conversation with ${selectedUser?.username}`}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {isGlobalChat ? '🌍 Global Chat' : `💬 ${selectedUser?.username}`}
+              </h1>
+              <p className="text-gray-600 mt-1">
+                {isGlobalChat
+                  ? 'Welcome to the decentralized chat! Connect with everyone.'
+                  : `Private conversation with ${selectedUser?.username}`}
+              </p>
+            </div>
+            {/* Manual price update button for global chat */}
+            {isGlobalChat && (
+              <button
+                onClick={handleManualPriceUpdate}
+                disabled={isPending}
+                className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg transition-colors disabled:opacity-50"
+                title="Fetch latest price update"
+              >
+                <RefreshCw className={`w-4 h-4 ${isPending ? 'animate-spin' : ''}`} />
+                Update Price
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages and Events */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-1">
         {isLoadingMessages ? (
           <div className="flex-1 flex items-center justify-center">
@@ -203,7 +308,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               </div>
             </div>
           </div>
-        ) : messages.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center space-y-4 max-w-md">
               <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
@@ -227,14 +332,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         ) : (
           <div className="space-y-1">
-            {messages.map((msg, idx) => (
-              <Message
-                key={`${msg.ipfsHash}-${idx}`}
-                ipfsHash={msg.ipfsHash}
-                from={msg.from}
-                currentUserAddress={currentUser.address}
-              />
-            ))}
+            {displayItems.map(renderDisplayItem)}
             <div ref={messagesEndRef} className="h-4" />
           </div>
         )}
@@ -249,7 +347,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder={`Type a message${isGlobalChat ? ' to everyone' : ` to ${selectedUser?.username}`}...`}
-              className="w-full px-4 py-3 pr-12 text-gray-800 bg-gray-50 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 focus:bg-white transition-colors outline-none text-base" /* text-base prevents zoom on iOS */
+              className="w-full px-4 py-3 pr-12 text-gray-800 bg-gray-50 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 focus:bg-white transition-colors outline-none text-base"
               disabled={isSending || isPending}
             />
           </div>

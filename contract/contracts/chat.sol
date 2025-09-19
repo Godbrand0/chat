@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 // /**
 //  * @title GodbrandChat
 //  * @dev A minimal chat dApp smart contract for classroom assignment
@@ -8,15 +10,24 @@ pragma solidity 0.8.30;
 //  * global group chat, and private chat. Messages are stored on-chain as IPFS hashes.
 //  */
 contract Chat {
+
+        AggregatorV3Interface internal dataFeed;
+    constructor() {
+        dataFeed = AggregatorV3Interface(
+           0x5fb1616F78dA7aFC9FF79e0371741a747D2a7F22
+        );
+    }
     
     // State variables for user management
     mapping(string => address) private nameToAddress;
     mapping(address => string) private addressToName;
     mapping(address => string) private profilePic;
+    int public btcEth;
     
     // Events for frontend to listen to
     event UserRegistered(address indexed user, string username, string profilePicHash);
     event MessageSent(address indexed from, address indexed to, string ipfsHash);
+    event PriceFetched(int256 price, uint256 timestamp);
     
     // Modifiers
     modifier onlyRegistered() {
@@ -35,6 +46,9 @@ contract Chat {
      * @param _name The desired username (without .godbrand suffix)
      * @param _profilePicHash IPFS hash of the profile picture
      */
+
+
+      
     function register(string memory _name, string memory _profilePicHash) 
         public  
         validUsername(_name) 
@@ -137,5 +151,21 @@ contract Chat {
      */
     function isRegistered(address _user) public view returns (bool registered) {
         return bytes(addressToName[_user]).length > 0;
+    }
+
+    function getChainlinkDataFeedLatestAnswer() public returns (int) {
+        // prettier-ignore
+        (
+            /* uint80 roundId */,
+            int256 answer,
+            /*uint256 startedAt*/,
+            /*uint256 updatedAt*/,
+            /*uint80 answeredInRound*/
+        ) = dataFeed.latestRoundData();
+          btcEth = answer;
+        emit PriceFetched(answer, block.timestamp);
+        
+        return answer;
+      
     }
 }

@@ -38,7 +38,7 @@ export const uploadToIPFS = async (file: File): Promise<string> => {
 // Fetch JSON from IPFS using Pinata gateway
 export const fetchJSONFromIPFS = async <T = unknown>(hash: string): Promise<T> => {
   try {
-    const res = await fetch(`https://gateway.pinata.cloud/ipfs/${hash}`);
+    const res = await fetch(`https://fuchsia-blank-mandrill-946.mypinata.cloud/ipfs//${hash}`);
     if (!res.ok) {
       throw new Error(`Failed to fetch IPFS data: ${res.statusText}`);
     }
@@ -79,4 +79,4 @@ export const uploadJSONToIPFS = async (data: object): Promise<string> => {
 
 // Gateway
 export const getIPFSUrl = (hash: string): string =>
-  `https://gateway.pinata.cloud/ipfs/${hash}`;
+  `https://fuchsia-blank-mandrill-946.mypinata.cloud/ipfs/${hash}`;

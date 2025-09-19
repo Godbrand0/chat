@@ -27,7 +27,7 @@ export default function HomePage() {
   return (
     <div className="h-screen flex flex-col justify-center items-center bg-gradient-to-br from-blue-50 to-blue-100 px-4">
       {/* Branding */}
-      <h1 className="text-3xl sm:text-5xl font-bold text-blue-900 mb-4 sm:mb-6 text-center font-extrabold">
+      <h1 className="text-3xl sm:text-5xl  text-blue-900 mb-4 sm:mb-6 text-center font-extrabold">
         Welcome to <span className="text-blue-600">Chat-verse</span>
       </h1>
       <p className="text-center text-gray-700 mb-6 sm:mb-8 max-w-md sm:max-w-lg font-bold px-2 sm:px-0 text-sm sm:text-base">

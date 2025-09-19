@@ -4,23 +4,28 @@ import { parseAbiItem, type AbiEvent, type WatchEventOnLogsParameter } from "vie
 import { CONTRACT_ADDRESS } from "../config/contract";
 
 type HistoryItem = {
-  type: "message" | "registration";
+  type: "message" | "registration" | "feed";
   from?: string;
   to?: string;
   username?: string;
   profilePicHash?: string;
   ipfsHash?: string;
+  price?: string;
   txHash: string;
   timestamp: number;
 };
 
-// Pre-parse ABI strings and assert as AbiEvent
+// Pre-parse ABI strings
 const MESSAGE_SENT_EVENT = parseAbiItem(
   "event MessageSent(address indexed from, address indexed to, string ipfsHash)"
 ) as AbiEvent;
 
 const USER_REGISTERED_EVENT = parseAbiItem(
   "event UserRegistered(address indexed user, string username, string profilePicHash)"
+) as AbiEvent;
+
+const PRICE_FETCHED_EVENT = parseAbiItem(
+  "event PriceFetched(int256 price, uint256 timestamp)"
 ) as AbiEvent;
 
 export function useUserHistory() {
@@ -36,14 +41,13 @@ export function useUserHistory() {
 
     const fetchPastLogs = async () => {
       try {
-        // Search from genesis to capture all historical data
-        const fromBlock = 0n; // Start from the very beginning
-        console.log('Searching blocks from:', fromBlock.toString(), 'to:', block.data.toString());
+        const fromBlock = 9233595n; // first deployment block
         const toBlock = block.data;
 
         const eventDefs: Array<{ type: HistoryItem["type"]; event: AbiEvent }> = [
           { type: "message", event: MESSAGE_SENT_EVENT },
           { type: "registration", event: USER_REGISTERED_EVENT },
+          { type: "feed", event: PRICE_FETCHED_EVENT },
         ];
 
         const all: HistoryItem[] = [];
@@ -55,74 +59,62 @@ export function useUserHistory() {
             fromBlock,
             toBlock,
           });
-          
-          console.log(`Found ${logs.length} logs for event type: ${e.type}`);
-          if (e.type === "message") {
-            console.log('Message logs:', logs);
-          }
 
-          const userLogs = logs.filter((log) => {
-            if (!log.args || Array.isArray(log.args)) return false;
+          // Fetch block timestamps in parallel
+          const logsWithTimestamps = await Promise.all(
+            logs.map(async (log) => {
+              const blk = await publicClient.getBlock({ blockNumber: log.blockNumber });
+              return { log, blockTimestamp: Number(blk.timestamp) * 1000 };
+            })
+          );
+
+          for (const { log, blockTimestamp } of logsWithTimestamps) {
+            if (!log.args || Array.isArray(log.args)) continue;
             const args = log.args as Record<string, unknown>;
 
             if (e.type === "message") {
-              // Include global messages (to address(0)) for everyone
-              // Also include private messages where user is sender or recipient
-              const isGlobalMessage = 
-                typeof args.to === "string" && 
+              const isGlobal =
+                typeof args.to === "string" &&
                 args.to.toLowerCase() === "0x0000000000000000000000000000000000000000";
-              
-              const isUserInvolvedMessage = 
+              const involved =
                 (typeof args.from === "string" &&
                   args.from.toLowerCase() === address.toLowerCase()) ||
                 (typeof args.to === "string" &&
                   args.to.toLowerCase() === address.toLowerCase());
-                  
-              const shouldInclude = isGlobalMessage || isUserInvolvedMessage;
-              
-              // Simple logging for debugging
-              if (e.type === "message" && shouldInclude) {
-                console.log('Including message:', { from: args.from, to: args.to, isGlobal: isGlobalMessage });
-              }
-              
-              return shouldInclude;
-            } else if (e.type === "registration") {
-              // Include all user registrations, not just current user's
-              return typeof args.user === "string";
-            }
-            return false;
-          });
 
-          all.push(
-            ...userLogs.map((log) => {
-              const baseItem = {
-                type: e.type,
+              if (!(isGlobal || involved)) continue;
+
+              all.push({
+                type: "message",
                 txHash: log.transactionHash,
-                timestamp: Date.now(), // Ideally: fetch block.timestamp
-              };
+                timestamp: blockTimestamp,
+                from: args.from as string,
+                to: args.to as string,
+                ipfsHash: args.ipfsHash as string,
+              });
+            } else if (e.type === "registration") {
+              all.push({
+                type: "registration",
+                txHash: log.transactionHash,
+                timestamp: blockTimestamp,
+                from: args.user as string,
+                username: args.username as string,
+                profilePicHash: args.profilePicHash as string,
+              });
+            } else if (e.type === "feed") {
+              const priceValue = args.price as bigint;
+              const formattedPrice = (Number(priceValue) / 1e18).toFixed(4);
+              const eventTimestamp = Number(args.timestamp as bigint) * 1000;
 
-              if (!log.args || Array.isArray(log.args)) return baseItem;
-              const args = log.args as Record<string, unknown>;
-
-              if (e.type === "message") {
-                return {
-                  ...baseItem,
-                  from: args.from as string,
-                  to: args.to as string,
-                  ipfsHash: args.ipfsHash as string,
-                };
-              } else if (e.type === "registration") {
-                return {
-                  ...baseItem,
-                  from: args.user as string,
-                  username: args.username as string,
-                  profilePicHash: args.profilePicHash as string,
-                };
-              }
-
-              return baseItem;
-            })
-          );
+              all.push({
+                type: "feed",
+                txHash: log.transactionHash,
+                timestamp: eventTimestamp || blockTimestamp,
+                price: formattedPrice,
+                from: "0x0000000000000000000000000000000000000000",
+              });
+            }
+          }
         }
 
         setHistory(all.sort((a, b) => b.timestamp - a.timestamp));
@@ -134,63 +126,63 @@ export function useUserHistory() {
     const watchNewLogs = () => {
       const addToHistory =
         (type: HistoryItem["type"]) =>
-        (logs: WatchEventOnLogsParameter<AbiEvent>) => {
-          const userLogs = logs.filter((log) => {
-            if (!log.args || Array.isArray(log.args)) return false;
+        async (logs: WatchEventOnLogsParameter<AbiEvent>) => {
+          const newItems: HistoryItem[] = [];
+
+          for (const log of logs) {
+            if (!log.args || Array.isArray(log.args)) continue;
             const args = log.args as Record<string, unknown>;
 
+            const blk = await publicClient.getBlock({ blockNumber: log.blockNumber });
+            const blockTimestamp = Number(blk.timestamp) * 1000;
+
             if (type === "message") {
-              // Include global messages (to address(0)) for everyone
-              // Also include private messages where user is sender or recipient
-              const isGlobalMessage = 
-                typeof args.to === "string" && 
+              const isGlobal =
+                typeof args.to === "string" &&
                 args.to.toLowerCase() === "0x0000000000000000000000000000000000000000";
-              
-              const isUserInvolvedMessage = 
+              const involved =
                 (typeof args.from === "string" &&
                   args.from.toLowerCase() === address.toLowerCase()) ||
                 (typeof args.to === "string" &&
                   args.to.toLowerCase() === address.toLowerCase());
-                  
-              return isGlobalMessage || isUserInvolvedMessage;
-            } else if (type === "registration") {
-              // Include all user registrations
-              return typeof args.user === "string";
-            }
-            return false;
-          });
 
-          setHistory((prev) => {
-            const newItems = userLogs.map((log) => {
-              const baseItem = {
-                type,
+              if (!(isGlobal || involved)) continue;
+
+              newItems.push({
+                type: "message",
                 txHash: log.transactionHash || "",
-                timestamp: Date.now(),
-              };
+                timestamp: blockTimestamp,
+                from: args.from as string,
+                to: args.to as string,
+                ipfsHash: args.ipfsHash as string,
+              });
+            } else if (type === "registration") {
+              newItems.push({
+                type: "registration",
+                txHash: log.transactionHash || "",
+                timestamp: blockTimestamp,
+                from: args.user as string,
+                username: args.username as string,
+                profilePicHash: args.profilePicHash as string,
+              });
+            } else if (type === "feed") {
+              const priceValue = args.price as bigint;
+              const formattedPrice = (Number(priceValue) / 1e18).toFixed(4);
+              const eventTimestamp = Number(args.timestamp as bigint) * 1000;
 
-              if (!log.args || Array.isArray(log.args)) return baseItem;
-              const args = log.args as Record<string, unknown>;
+              newItems.push({
+                type: "feed",
+                txHash: log.transactionHash || "",
+                timestamp: eventTimestamp || blockTimestamp,
+                price: formattedPrice,
+                from: "0x0000000000000000000000000000000000000000",
+              });
+            }
+          }
 
-              if (type === "message") {
-                return {
-                  ...baseItem,
-                  from: args.from as string,
-                  to: args.to as string,
-                  ipfsHash: args.ipfsHash as string,
-                };
-              } else if (type === "registration") {
-                return {
-                  ...baseItem,
-                  from: args.user as string,
-                  username: args.username as string,
-                  profilePicHash: args.profilePicHash as string,
-                };
-              }
-
-              return baseItem;
-            });
-            return [...newItems, ...prev].sort((a, b) => b.timestamp - a.timestamp);
-          });
+          setHistory((prev) =>
+            [...newItems, ...prev].sort((a, b) => b.timestamp - a.timestamp)
+          );
         };
 
       unwatchers.push(
@@ -200,12 +192,18 @@ export function useUserHistory() {
           onLogs: addToHistory("message"),
         })
       );
-
       unwatchers.push(
         publicClient.watchEvent({
           address: CONTRACT_ADDRESS,
           event: USER_REGISTERED_EVENT,
           onLogs: addToHistory("registration"),
+        })
+      );
+      unwatchers.push(
+        publicClient.watchEvent({
+          address: CONTRACT_ADDRESS,
+          event: PRICE_FETCHED_EVENT,
+          onLogs: addToHistory("feed"),
         })
       );
     };

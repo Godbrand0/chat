@@ -8,7 +8,7 @@ import {
   CONTRACT_ABI,
   CONTRACT_ADDRESS,
 } from "../config/contract";
-import { useUserHistory } from "./useUserHistory"; // 👈 bring in the logs hook
+import { useUserHistory } from "./useUserHistory";
 
 // ---------- Write hooks ----------
 export function useChatContract() {
@@ -21,7 +21,10 @@ export function useChatContract() {
     data: receipt,
   } = useWaitForTransactionReceipt({ hash });
 
-  // 👇 handle logging side effects properly
+  // Get history from the centralized hook
+  const history = useUserHistory();
+
+  // Handle logging side effects properly
   useEffect(() => {
     if (isConfirmed && receipt) {
       console.log("✅ Transaction confirmed:", receipt);
@@ -34,8 +37,16 @@ export function useChatContract() {
     }
   }, [error]);
 
-  // 👇 add logs hook here
-  const history = useUserHistory();
+  // Add price feed function
+  const fetchPriceUpdate = () => {
+    console.log("📈 Manually fetching price update");
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: CONTRACT_ABI,
+      functionName: "getChainlinkDataFeedLatestAnswer",
+      args: [],
+    });
+  };
 
   const register = async (name: string, profilePicHash: string) => {
     console.log("📌 Registering user:", { name, profilePicHash });
@@ -71,15 +82,16 @@ export function useChatContract() {
     register,
     sendGlobalMessage,
     sendPrivateMessage,
+    fetchPriceUpdate, // New function for manual price updates
     isPending,
     isConfirming,
     isConfirmed,
     hash,
-    history, // 👈 surface logs directly from here
+    history, // Surface history from centralized source
   };
 }
 
-// ---------- Read hooks (unchanged) ----------
+// ---------- Read hooks ----------
 
 // Current user's profile
 export function useMyProfile(address: `0x${string}` | undefined) {
@@ -108,10 +120,9 @@ export function useUserProfile(address: `0x${string}` | undefined) {
 
   return {
     ...result,
-    data: result.data as [string, string] | undefined, // 👈 type as tuple
+    data: result.data as [string, string] | undefined,
   };
 }
-
 
 export function useIsRegistered(address: `0x${string}` | undefined) {
   return useReadContract({
@@ -140,5 +151,15 @@ export function useGetAddressByUsername(username: string | undefined) {
     functionName: "getAddressByUsername",
     args: username ? [username] : undefined,
     query: { enabled: !!username && username.length > 0 },
+  });
+}
+
+// Read current price from contract
+export function useCurrentPrice() {
+  return useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: CONTRACT_ABI,
+    functionName: "btcEth",
+    args: [],
   });
 }

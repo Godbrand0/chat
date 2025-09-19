@@ -2,11 +2,18 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: 'gateway.pinata.cloud' },
-      { protocol: 'https', hostname: 'ipfs.infura.io' },
-    ],
-  },
+  remotePatterns: [
+    {
+      protocol: 'https',
+      hostname: 'fuchsia-blank-mandrill-946.mypinata.cloud',
+    },
+    {
+      protocol: 'https',
+      hostname: 'ipfs.infura.io',
+    },
+  ],
+},
+
   webpack: (config) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,

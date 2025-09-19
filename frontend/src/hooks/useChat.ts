@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAccount, useWalletClient } from 'wagmi';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../config/contract';
 import { createPublicClient, getContract, http } from 'viem';
-import { liskSepolia } from 'viem/chains';
+import { sepolia } from "viem/chains";
 
 
 export const useChat = () => {
@@ -15,7 +15,7 @@ export const useChat = () => {
   useEffect(() => {
     if (walletClient) {
       const publicClient = createPublicClient({
-        chain: liskSepolia,
+        chain: sepolia,
         transport: http(),
       });
 

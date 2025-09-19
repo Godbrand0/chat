@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
 import { usePublicClient, useBlockNumber } from "wagmi";
 import { parseAbiItem, type AbiEvent } from "viem";
@@ -23,17 +24,48 @@ export function useRegisteredUsers() {
 
     const fetchPastRegistrations = async () => {
       try {
-        const fromBlock = block.data > 5000n ? block.data - 5000n : 0n;
+        const fromBlock = 9233595n; // Start from genesis to capture all users
         const toBlock = block.data;
+        const maxBlockRange = block.data; // Keep under 50k limit with buffer
 
-        const logs = await publicClient.getLogs({
-          address: CONTRACT_ADDRESS,
-          event: USER_REGISTERED_EVENT,
-          fromBlock,
-          toBlock,
-        });
+        console.log('Fetching user registrations from block:', fromBlock.toString(), 'to:', toBlock.toString());
 
-        const registeredUsers: UserHistoryItem[] = logs
+        let allLogs: any[] = [];
+
+        // If range is within limit, fetch directly
+        if (toBlock - fromBlock <= maxBlockRange) {
+          allLogs = await publicClient.getLogs({
+            address: CONTRACT_ADDRESS,
+            event: USER_REGISTERED_EVENT,
+            fromBlock,
+            toBlock,
+          });
+        } else {
+          // Split into chunks for large block ranges
+          let currentFrom = fromBlock;
+          
+          while (currentFrom < toBlock) {
+            const currentTo = currentFrom + maxBlockRange > toBlock ? toBlock : currentFrom + maxBlockRange;
+            
+            console.log(`Fetching user registration chunk from ${currentFrom} to ${currentTo}`);
+            
+            const logs = await publicClient.getLogs({
+              address: CONTRACT_ADDRESS,
+              event: USER_REGISTERED_EVENT,
+              fromBlock: currentFrom,
+              toBlock: currentTo,
+            });
+            
+            console.log(`Found ${logs.length} user registrations in chunk`);
+            allLogs.push(...logs);
+            
+            currentFrom = currentTo + 1n;
+          }
+        }
+
+        console.log(`Total user registrations found: ${allLogs.length}`);
+
+        const registeredUsers: UserHistoryItem[] = allLogs
           .map((log) => {
             if (!log.args || Array.isArray(log.args)) return null;
             const args = log.args as Record<string, unknown>;
@@ -82,5 +114,5 @@ export function useRegisteredUsers() {
     return () => unwatch();
   }, [publicClient, block.data]);
 
-  return users;
+  return { users };
 }

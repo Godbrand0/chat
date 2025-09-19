@@ -25,7 +25,7 @@ export function useUsers() {
         // Get recent blocks to fetch user registrations
         const blockNumber = await publicClient.getBlockNumber();
         // Search from genesis to capture all historical data
-        const fromBlock = 0n; // Start from the very beginning
+        const fromBlock = 9233595n; // Start from the very beginning
         console.log('Searching user registrations from block:', fromBlock.toString(), 'to:', blockNumber.toString());
         
         // Fetch all user registration events
